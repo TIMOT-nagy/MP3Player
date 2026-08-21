@@ -1,53 +1,72 @@
 package com.example.mp3player
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.core.app.ActivityCompat
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
+import com.example.mp3player.ui.theme.MP3PlayerTheme
 
 class MainActivity : ComponentActivity() {
+
+    private val viewModel: MusicPlayerViewModel by viewModels()
+
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val audioGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions[Manifest.permission.READ_MEDIA_AUDIO] == true
+        } else {
+            permissions[Manifest.permission.READ_EXTERNAL_STORAGE] == true
+        }
+
+        if (audioGranted) {
+            loadMusic()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Értesítési engedély elkérése (Android 13+)
-        checkNotificationPermission()
+        viewModel.initController()
+        checkAndRequestPermissions()
 
-        // Compose felület betöltése
         setContent {
-            MainScreen()
-        }
-    }
-
-    private fun checkNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED) {
-
-                ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                    101
-                )
+            MP3PlayerTheme {
+                MainScreen(viewModel = viewModel)
             }
         }
     }
 
-    // Ezt a függvényt hívhatod meg a zene indításakor
-    fun startMusicService(title: String, artist: String, uriString: String, duration: Long, position: Long) {
-        val intent = Intent(this, MusicService::class.java).apply {
-            putExtra("TITLE", title)
-            putExtra("ARTIST", artist)
-            putExtra("URI_STRING", uriString)
-            putExtra("DURATION", duration)
-            putExtra("POSITION", position)
-            putExtra("IS_PLAYING", true)
+    private fun checkAndRequestPermissions() {
+        val permissionsToRequest = mutableListOf<String>()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.READ_MEDIA_AUDIO)
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
         }
-        ContextCompat.startForegroundService(this, intent)
+
+        if (permissionsToRequest.isNotEmpty()) {
+            permissionLauncher.launch(permissionsToRequest.toTypedArray())
+        } else {
+            loadMusic()
+        }
+    }
+
+    private fun loadMusic() {
+        val songs = fetchAudioFiles(this)
+        viewModel.updateSongsList(songs)
     }
 }
